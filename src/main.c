@@ -9,6 +9,8 @@
 #include <task.h>
 
 #include "tkjhat/sdk.h"
+#include "hardware/gpio.h"
+#include "hardware/irq.h"
 
 // Exercise 4. Include the libraries necessaries to use the usb-serial-debug, and tinyusb
 // Tehtävä 4 . Lisää usb-serial-debugin ja tinyusbin käyttämiseen tarvittavat kirjastot.
@@ -31,15 +33,21 @@ uint32_t ambientLight;
 static void btn_fxn(uint gpio, uint32_t eventMask) {
     // Tehtävä 1: Vaihda LEDin tila käyttämällä TKJHAT SDK:n sopivaa funktiota.
     // Exercise 1: Toggle the LED using the appropriate function from the TKJHAT SDK.
+    uint8_t pinValue = gpio_get(LED1);
+    pinValue = !pinValue;
+    gpio_put(LED1, pinValue);
 }
 
 static void sensor_task(void *arg){
     (void)arg;
     // Tehtävä 2: Alusta valoisuusanturi. Etsi SDK-dokumentaatiosta sopiva funktio.
     // Exercise 2: Init the light sensor. Find in the SDK documentation the adequate function.
-   
+    init_veml6030();
+
+
     for(;;){
-        
+        uint32_t valo = veml6030_read_light();
+        printf("%d \n", valo);
         // Tehtävä 2: Muokkaa tästä eteenpäin sovelluskoodilla. Kommentoi seuraava rivi.
         //             
         // Exercise 2: Modify with application code here. Comment following line.
@@ -158,9 +166,13 @@ int main() {
     //             Interruption handler is defined up as btn_fxn
     // Tehtävä 1:  Alusta painike ja LEd ja rekisteröi vastaava keskeytys.
     //             Keskeytyskäsittelijä on määritelty yläpuolella nimellä btn_fxn
+    gpio_init(BUTTON1);
+    gpio_set_dir(BUTTON1, GPIO_IN);
 
+    gpio_init(LED1);
+    gpio_set_dir(LED1, GPIO_OUT);
 
-
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, btn_fxn);
     
     
     TaskHandle_t hSensorTask, hPrintTask, hUSB = NULL;
