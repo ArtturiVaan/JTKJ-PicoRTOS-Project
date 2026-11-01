@@ -12,6 +12,8 @@
 #include "hardware/gpio.h"
 #include "hardware/irq.h"
 
+// Moikka loltsi
+
 // Exercise 4. Include the libraries necessaries to use the usb-serial-debug, and tinyusb
 // Tehtävä 4 . Lisää usb-serial-debugin ja tinyusbin käyttämiseen tarvittavat kirjastot.
 
