@@ -23,26 +23,26 @@ static void sensor_task(void *arg){
     (void)arg;
 
     init_ICM42670();
-    ICM42670_startGyro(ICM42670_GYRO_ODR_DEFAULT, ICM42670_GYRO_FSR_DEFAULT);
+    ICM42670_start_with_default_values();
 
     for(;;){
 
         if (programState == IDLE) {
-        ICM42670_read_sensor_data(
-        &motionData[0],
-        &motionData[1],
-        &motionData[2],
-        &motionData[3],
-        &motionData[4],
-        &motionData[5],
-        &motionData[6]
-        );
+            ICM42670_read_sensor_data(
+            &motionData[0],
+            &motionData[1],
+            &motionData[2],
+            &motionData[3],
+            &motionData[4],
+            &motionData[5],
+            &motionData[6]
+            );
         
-        programState = DATA_READY;
+            programState = DATA_READY;
+        }
 
         tight_loop_contents(); // Modify with application code here.
         vTaskDelay(pdMS_TO_TICKS(2000));
-        }
     }
 }
 
@@ -52,11 +52,16 @@ static void processor_task(void *arg){
     for(;;){
 
         if (programState == DATA_READY) {
-            uint32_t gyro_x = motionData[3];
-            uint32_t gyro_y = motionData[4];
-            uint32_t gyro_z = motionData[5];
-            //printf("TESTI: x akseli, y akseli, z akseli\n");
+            float gyro_x = motionData[3];
+            float gyro_y = motionData[4];
+            float gyro_z = motionData[5];
+            printf("x akseli: %f, y akseli: %f, z akseli: %f\n",
+            gyro_x, gyro_y, gyro_z);
+            programState = IDLE;
         }
+
+        tight_loop_contents(); // Modify with application code here.
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
