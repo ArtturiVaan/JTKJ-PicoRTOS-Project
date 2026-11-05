@@ -18,6 +18,7 @@ enum state { IDLE=1, DATA_READY, DISPLAY };
 enum state programState = IDLE;
 
 float motionData[7];
+uint8_t tila;
 
 static void sensor_task(void *arg){
     (void)arg;
@@ -41,7 +42,7 @@ static void sensor_task(void *arg){
             programState = DATA_READY;
         }
 
-        tight_loop_contents(); // Modify with application code here.
+        //tight_loop_contents(); // Modify with application code here.
         vTaskDelay(pdMS_TO_TICKS(2000));
     }
 }
@@ -52,11 +53,21 @@ static void processor_task(void *arg){
     for(;;){
 
         if (programState == DATA_READY) {
-            float gyro_x = motionData[3];
-            float gyro_y = motionData[4];
-            float gyro_z = motionData[5];
+            float accel_x = motionData[0];
+            float accel_y = motionData[1];
+            float accel_z = motionData[2];
+
+            if (accel_z > 0.9) {
+                tila = 0; //piste
+            }
+
+            if (accel_y < -0.9) {
+                tila = 1; //viiva
+            }
+
             printf("x akseli: %f, y akseli: %f, z akseli: %f\n",
-            gyro_x, gyro_y, gyro_z);
+            accel_x, accel_y, accel_z);
+            //printf("tila: %d\n", tila);
             programState = IDLE;
         }
 
@@ -65,8 +76,31 @@ static void processor_task(void *arg){
     }
 }
 
+
+static void button_task(uint gpio, uint32_t eventMask) {
+
+    if (gpio == BUTTON1){
+        // piste vai viiva
+        printf("Tila: %d\n", tila);
+
+    }
+    if (gpio == BUTTON2){
+        // välilyönti
+        printf("Tila: _\n");
+    }
+
+}
+
 int main() {
     stdio_init_all();
+
+    gpio_init(BUTTON1);
+    gpio_set_dir(BUTTON1, GPIO_IN);
+
+    //gpio_init(BUTTON2);
+    //gpio_set_dir(BUTTON2, GPIO_IN);
+
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_task);
     // Uncomment this lines if you want to wait till the serial monitor is connected
     while (!stdio_usb_connected()){
         sleep_ms(10);
@@ -101,7 +135,6 @@ int main() {
         printf("Example Task creation failed\n");
         return 0;
     }
-
 
     // Start the scheduler (never returns)
     vTaskStartScheduler();
