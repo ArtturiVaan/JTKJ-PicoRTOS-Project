@@ -43,7 +43,7 @@ static void sensor_task(void *arg){
         }
 
         //tight_loop_contents(); // Modify with application code here.
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
@@ -53,9 +53,9 @@ static void processor_task(void *arg){
     for(;;){
 
         if (programState == DATA_READY) {
-            float accel_x = motionData[0];
-            float accel_y = motionData[1];
-            float accel_z = motionData[2];
+            float accel_x = motionData[0]; //kiihtyvyysanturin data x-akselilla
+            float accel_y = motionData[1]; //y-akseli
+            float accel_z = motionData[2]; //z-akseli
 
             if (accel_z > 0.9) {
                 tila = 0; //piste
@@ -65,14 +65,14 @@ static void processor_task(void *arg){
                 tila = 1; //viiva
             }
 
-            printf("x akseli: %f, y akseli: %f, z akseli: %f\n",
-            accel_x, accel_y, accel_z);
+            //printf("x akseli: %f, y akseli: %f, z akseli: %f\n",
+            //accel_x, accel_y, accel_z);
             //printf("tila: %d\n", tila);
             programState = IDLE;
         }
 
         tight_loop_contents(); // Modify with application code here.
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 
@@ -81,12 +81,20 @@ static void button_task(uint gpio, uint32_t eventMask) {
 
     if (gpio == BUTTON1){
         // piste vai viiva
-        printf("Tila: %d\n", tila);
+        if (tila == 0) {
+            printf(".");
+        }
 
+        if (tila == 1) {
+            printf("-");
+        }
+
+        //printf("Tila: %d\n", tila);
     }
+
     if (gpio == BUTTON2){
         // välilyönti
-        printf("Tila: _\n");
+        printf(" ");
     }
 
 }
@@ -97,10 +105,12 @@ int main() {
     gpio_init(BUTTON1);
     gpio_set_dir(BUTTON1, GPIO_IN);
 
-    //gpio_init(BUTTON2);
-    //gpio_set_dir(BUTTON2, GPIO_IN);
+    gpio_init(BUTTON2);
+    gpio_set_dir(BUTTON2, GPIO_IN);
 
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_task);
+    gpio_set_irq_enabled(BUTTON2, GPIO_IRQ_EDGE_FALL, true);
+
     // Uncomment this lines if you want to wait till the serial monitor is connected
     while (!stdio_usb_connected()){
         sleep_ms(10);
