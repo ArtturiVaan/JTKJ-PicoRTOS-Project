@@ -7,11 +7,14 @@
 #include <FreeRTOS.h>
 #include <queue.h>
 #include <task.h>
+#include "usbSerialDebug/helper.h"
 
 #include "tkjhat/sdk.h"
 
 // Default stack size for the tasks. It can be reduced to 1024 if task is not using lot of memory.
 #define DEFAULT_STACK_SIZE 2048 
+#define BUFFER_SIZE 256
+
 
 //Add here necessary states
 enum state { IDLE=1, DATA_READY, DISPLAY };
@@ -77,24 +80,58 @@ static void processor_task(void *arg){
 }
 
 
+
+uint8_t morse_buf[BUFFER_SIZE];
+char character;
+uint8_t morse_index = 0;
+uint8_t space_counter = 0;
+
 static void button_task(uint gpio, uint32_t eventMask) {
+
+    static TickType_t lastPressTime = 0;
+    TickType_t currentTime = xTaskGetTickCountFromISR();
+
+    if (lastPressTime != 0 && (currentTime - lastPressTime) < pdMS_TO_TICKS(100)) {
+        return;
+    }
+
+    lastPressTime = currentTime;
 
     if (gpio == BUTTON1){
         // piste vai viiva
         if (tila == 0) {
-            printf(".");
+            character = '.';
+            usb_serial_print(".");
         }
 
         if (tila == 1) {
-            printf("-");
+            character = '-';
+            usb_serial_print("-");
         }
-
+        space_counter=0;
         //printf("Tila: %d\n", tila);
     }
 
     if (gpio == BUTTON2){
         // välilyönti
-        printf(" ");
+        character = ' ';
+        usb_serial_print(" ");
+        space_counter++;
+
+
+
+        if (space_counter > 2){
+            printf("sent: %s\n",morse_buf);
+            space_counter=0;
+            morse_index=0;
+            for (int i = 0; i < BUFFER_SIZE; i++) {
+                morse_buf[i] = 0;
+            }
+        }
+    }
+    if (morse_index < BUFFER_SIZE - 1) { //tarkistetaan ettei buffer ylity
+        morse_buf[morse_index] = character; //lisätään merkki indeksiin n
+        morse_index++;
     }
 
 }
