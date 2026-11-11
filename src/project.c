@@ -7,7 +7,6 @@
 #include <FreeRTOS.h>
 #include <queue.h>
 #include <task.h>
-#include "usbSerialDebug/helper.h"
 
 #include "tkjhat/sdk.h"
 
@@ -19,7 +18,9 @@
 //Add here necessary states
 enum state { IDLE=1, DATA_READY, DISPLAY };
 enum state programState = IDLE;
-
+struct imu_data{
+    float ax;
+}
 float motionData[7];
 uint8_t tila;
 
@@ -33,7 +34,7 @@ static void sensor_task(void *arg){
 
         if (programState == IDLE) {
             ICM42670_read_sensor_data(
-            &motionData[0],
+            &motionData[0], // imu_data.ax
             &motionData[1],
             &motionData[2],
             &motionData[3],
@@ -99,14 +100,15 @@ static void button_task(uint gpio, uint32_t eventMask) {
 
     if (gpio == BUTTON1){
         // piste vai viiva
-        if (tila == 0) {
+        if (tila == 0)
+            //(motionData[1] >0.9) <--> accel_z > 0.9 {
             character = '.';
-            usb_serial_print(".");
+            printf(".");
         }
 
         if (tila == 1) {
             character = '-';
-            usb_serial_print("-");
+            printf("-");
         }
         space_counter=0;
         //printf("Tila: %d\n", tila);
@@ -115,13 +117,13 @@ static void button_task(uint gpio, uint32_t eventMask) {
     if (gpio == BUTTON2){
         // välilyönti
         character = ' ';
-        usb_serial_print(" ");
+        printf(" ");
         space_counter++;
 
 
 
         if (space_counter > 2){
-            printf("sent: %s\n",morse_buf);
+            //printf("sent: %s\n",morse_buf);
             space_counter=0;
             morse_index=0;
             for (int i = 0; i < BUFFER_SIZE; i++) {
