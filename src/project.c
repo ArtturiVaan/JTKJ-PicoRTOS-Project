@@ -11,134 +11,147 @@
 #include "tkjhat/sdk.h"
 
 // Default stack size for the tasks. It can be reduced to 1024 if task is not using lot of memory.
-#define DEFAULT_STACK_SIZE 2048 
+#define DEFAULT_STACK_SIZE 2048
 #define BUFFER_SIZE 256
 
-
-//Add here necessary states
-enum state { IDLE=1, DATA_READY, DISPLAY };
+// Add here necessary states
+enum state
+{
+    IDLE = 1,
+    DATA_READY,
+    DISPLAY
+};
 enum state programState = IDLE;
-struct imu_data{
-    float ax;
-}
-float motionData[7];
-uint8_t tila;
 
-static void sensor_task(void *arg){
+struct imu_data
+{
+    float ax;
+    float ay;
+    float az;
+    float gx;
+    float gy;
+    float gz;
+    float t;
+};
+
+struct imu_data imu_data;
+
+static void sensor_task(void *arg)
+{
     (void)arg;
 
     init_ICM42670();
     ICM42670_start_with_default_values();
 
-    for(;;){
+    for (;;)
+    {
 
-        if (programState == IDLE) {
+        if (programState == IDLE)
+        {
             ICM42670_read_sensor_data(
-            &motionData[0], // imu_data.ax
-            &motionData[1],
-            &motionData[2],
-            &motionData[3],
-            &motionData[4],
-            &motionData[5],
-            &motionData[6]
-            );
-        
-            programState = DATA_READY;
+                &imu_data.ax, // imu_data.ax
+                &imu_data.ay,
+                &imu_data.az,
+                &imu_data.gx,
+                &imu_data.gy,
+                &imu_data.gz,
+                &imu_data.t);
         }
 
-        //tight_loop_contents(); // Modify with application code here.
+        // tight_loop_contents(); // Modify with application code here.
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
-
-static void processor_task(void *arg){
-    (void)arg;
-
-    for(;;){
-
-        if (programState == DATA_READY) {
-            float accel_x = motionData[0]; //kiihtyvyysanturin data x-akselilla
-            float accel_y = motionData[1]; //y-akseli
-            float accel_z = motionData[2]; //z-akseli
-
-            if (accel_z > 0.9) {
-                tila = 0; //piste
-            }
-
-            if (accel_y < -0.9) {
-                tila = 1; //viiva
-            }
-
-            //printf("x akseli: %f, y akseli: %f, z akseli: %f\n",
-            //accel_x, accel_y, accel_z);
-            //printf("tila: %d\n", tila);
-            programState = IDLE;
-        }
-
-        tight_loop_contents(); // Modify with application code here.
-        vTaskDelay(pdMS_TO_TICKS(10));
-    }
-}
-
-
 
 uint8_t morse_buf[BUFFER_SIZE];
 char character;
 uint8_t morse_index = 0;
 uint8_t space_counter = 0;
+uint8_t button;
 
-static void button_task(uint gpio, uint32_t eventMask) {
+static void write_task(void *arg)
+{
 
+    (void)arg;
+
+    for(;;)
+    {
+        if (programState == DATA_READY){
+
+            clear_display();
+
+            if (button == BUTTON1)
+            {
+                // piste vai viiva
+                if (imu_data.az > 0.9){
+                    character = '.';
+                    write_text(".");
+                }
+
+                if (imu_data.ay < -0.9)
+                {
+                    character = '-';
+                    write_text("-");
+                }
+
+                space_counter = 0;
+            }
+
+            if (button == BUTTON2)
+            {
+                // välilyönti
+                character = ' ';
+                write_text(" ");
+                space_counter++;
+
+
+                if (space_counter > 2)
+                {
+                    printf("sent: %s\n",morse_buf);
+                    space_counter = 0;
+                    morse_index = 0;
+                    for (int i = 0; i < BUFFER_SIZE; i++)
+                    {
+                        morse_buf[i] = 0;
+                    }
+                }
+            }
+
+            if (morse_index < BUFFER_SIZE - 1)
+            {                                       // tarkistetaan ettei buffer ylity
+                morse_buf[morse_index] = character; // lisätään merkki indeksiin n
+                morse_index++;
+            }
+            programState = IDLE;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+
+static void button_interrupt(uint gpio, uint32_t eventMask)
+{
+    /*
     static TickType_t lastPressTime = 0;
     TickType_t currentTime = xTaskGetTickCountFromISR();
 
-    if (lastPressTime != 0 && (currentTime - lastPressTime) < pdMS_TO_TICKS(100)) {
+    if (lastPressTime != 0 && (currentTime - lastPressTime) < pdMS_TO_TICKS(100))
+    {
         return;
     }
 
     lastPressTime = currentTime;
-
-    if (gpio == BUTTON1){
-        // piste vai viiva
-        if (tila == 0)
-            //(motionData[1] >0.9) <--> accel_z > 0.9 {
-            character = '.';
-            printf(".");
-        }
-
-        if (tila == 1) {
-            character = '-';
-            printf("-");
-        }
-        space_counter=0;
-        //printf("Tila: %d\n", tila);
+*/
+    if (programState == IDLE){
+        button = gpio;
+        programState = DATA_READY;
     }
-
-    if (gpio == BUTTON2){
-        // välilyönti
-        character = ' ';
-        printf(" ");
-        space_counter++;
-
-
-
-        if (space_counter > 2){
-            //printf("sent: %s\n",morse_buf);
-            space_counter=0;
-            morse_index=0;
-            for (int i = 0; i < BUFFER_SIZE; i++) {
-                morse_buf[i] = 0;
-            }
-        }
-    }
-    if (morse_index < BUFFER_SIZE - 1) { //tarkistetaan ettei buffer ylity
-        morse_buf[morse_index] = character; //lisätään merkki indeksiin n
-        morse_index++;
-    }
-
+    
 }
 
-int main() {
+int main()
+{
     stdio_init_all();
 
     gpio_init(BUTTON1);
@@ -147,40 +160,45 @@ int main() {
     gpio_init(BUTTON2);
     gpio_set_dir(BUTTON2, GPIO_IN);
 
-    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_task);
+    gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_interrupt);
     gpio_set_irq_enabled(BUTTON2, GPIO_IRQ_EDGE_FALL, true);
 
     // Uncomment this lines if you want to wait till the serial monitor is connected
-    while (!stdio_usb_connected()){
+    while (!stdio_usb_connected())
+    {
         sleep_ms(10);
-    } 
+    }
     init_hat_sdk();
-    sleep_ms(300); //Wait some time so initialization of USB and hat is done.
+    sleep_ms(300); // Wait some time so initialization of USB and hat is done.
 
-    TaskHandle_t hSensorTask, hProcessorTask;
+    init_display();
+
+    TaskHandle_t hSensorTask, hWriteTask;
 
     // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(sensor_task,       // (en) Task function
-                "sensor",              // (en) Name of the task 
-                DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                NULL,               // (en) Arguments of the task 
-                2,                  // (en) Priority of this task
-                &hSensorTask);    // (en) A handle to control the execution of this task
+    BaseType_t result = xTaskCreate(sensor_task,        // (en) Task function
+                                    "sensor",           // (en) Name of the task
+                                    DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
+                                    NULL,               // (en) Arguments of the task
+                                    2,                  // (en) Priority of this task
+                                    &hSensorTask);      // (en) A handle to control the execution of this task
 
-    if(result != pdPASS) {
+    if (result != pdPASS)
+    {
         printf("Example Task creation failed\n");
         return 0;
     }
 
     // Create the tasks with xTaskCreate
-    BaseType_t result1 = xTaskCreate(processor_task,       // (en) Task function
-                "processor",              // (en) Name of the task 
-                DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                NULL,               // (en) Arguments of the task 
-                2,                  // (en) Priority of this task
-                &hProcessorTask);    // (en) A handle to control the execution of this task
+    BaseType_t result1 = xTaskCreate(write_task,         // (en) Task function
+                                     "write",            // (en) Name of the task
+                                     DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
+                                     NULL,               // (en) Arguments of the task
+                                     2,                  // (en) Priority of this task
+                                     &hWriteTask);       // (en) A handle to control the execution of this task
 
-    if(result1 != pdPASS) {
+    if (result1 != pdPASS)
+    {
         printf("Example Task creation failed\n");
         return 0;
     }
@@ -191,4 +209,3 @@ int main() {
     // Never reach this line.
     return 0;
 }
-
