@@ -19,7 +19,8 @@ enum state
 {
     IDLE = 1,
     DATA_READY,
-    DISPLAY
+    DISPLAY,
+    SERIAL
 };
 enum state programState = IDLE;
 
@@ -68,6 +69,7 @@ char character;
 uint8_t morse_index = 0;
 uint8_t space_counter = 0;
 uint8_t button;
+char serial_buffer[BUFFER_SIZE];
 
 static void write_task(void *arg)
 {
@@ -125,7 +127,48 @@ static void write_task(void *arg)
             programState = IDLE;
         }
 
+        if (programState == SERIAL){
+            clear_display();
+            write_text_xy(2, 2, serial_buffer);
+            programState = IDLE;
+
+        }
+
         vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+static void serial_task(void *arg)
+{
+    (void)arg;
+
+    int index = 0;
+
+    for(;;)
+    {
+        if (programState == IDLE){
+
+            int ch = getchar_timeout_us(0);
+
+        if (ch >= 0)
+        {
+            if (ch == '\n')
+            {
+                serial_buffer[index] = '\0';
+
+                programState = SERIAL;
+
+                index = 0;
+            }
+            else if (index < BUFFER_SIZE - 1)
+            {
+                serial_buffer[index++] = (char)ch;
+            }
+
+        
+        vTaskDelay(pdMS_TO_TICKS(50));
+        }
+        }
     }
 }
 
@@ -173,7 +216,7 @@ int main()
 
     init_display();
 
-    TaskHandle_t hSensorTask, hWriteTask;
+    TaskHandle_t hSensorTask, hWriteTask, hSerialTask;
 
     // Create the tasks with xTaskCreate
     BaseType_t result = xTaskCreate(sensor_task,        // (en) Task function
@@ -198,6 +241,20 @@ int main()
                                      &hWriteTask);       // (en) A handle to control the execution of this task
 
     if (result1 != pdPASS)
+    {
+        printf("Example Task creation failed\n");
+        return 0;
+    }
+
+        // Create the tasks with xTaskCreate
+    BaseType_t result2 = xTaskCreate(serial_task,        // (en) Task function
+                                    "serial",           // (en) Name of the task
+                                    DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
+                                    NULL,               // (en) Arguments of the task
+                                    2,                  // (en) Priority of this task
+                                    &hSerialTask);      // (en) A handle to control the execution of this task
+
+    if (result2 != pdPASS)
     {
         printf("Example Task creation failed\n");
         return 0;
