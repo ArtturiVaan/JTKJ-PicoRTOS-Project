@@ -14,6 +14,12 @@
 #define DEFAULT_STACK_SIZE 2048
 #define BUFFER_SIZE 256
 
+// How many characters can fit horizontally on the screen, what is the height difference between lines
+// and how many lines can fit vertically on the screen.
+#define CHARS_PER_LINE 20
+#define LINE_HEIGHT 10
+#define MAX_LINES 6
+
 // Add here necessary states
 enum state
 {
@@ -36,6 +42,43 @@ struct imu_data
 };
 
 struct imu_data imu_data;
+
+static void write_wrapped(const char *text)
+{
+    char line[CHARS_PER_LINE + 1];
+    int len = strlen(text);
+    int i = 0;
+    int row = 0;
+
+    while (i < len && row < MAX_LINES)
+    {
+        int n = CHARS_PER_LINE;
+
+        if (len - i > CHARS_PER_LINE)
+        {
+            int b = CHARS_PER_LINE;
+            while (b > 0 && text[i + b] != ' ')
+            {
+                b--;
+            }
+            if (b > 0)
+            {
+                n = b;
+            }
+        }
+
+        strncpy(line, text + i, n);
+        line[n] = '\0';
+        write_text_xy(2, 2 + row * LINE_HEIGHT, line);
+
+        i += n;
+        while (text[i] == ' ')
+        {
+            i++;
+        }
+        row++;
+    }
+}
 
 static void sensor_task(void *arg)
 {
@@ -129,7 +172,7 @@ static void write_task(void *arg)
 
         if (programState == SERIAL){
             clear_display();
-            write_text_xy(2, 2, serial_buffer);
+            write_wrapped(serial_buffer);
             programState = IDLE;
 
         }
@@ -146,7 +189,8 @@ static void serial_task(void *arg)
 
     for(;;)
     {
-        if (programState == IDLE){
+        if (programState == IDLE)
+        {
 
             int ch = getchar_timeout_us(0);
 
@@ -164,11 +208,10 @@ static void serial_task(void *arg)
             {
                 serial_buffer[index++] = (char)ch;
             }
+        }
+        }
 
-        
         vTaskDelay(pdMS_TO_TICKS(50));
-        }
-        }
     }
 }
 
