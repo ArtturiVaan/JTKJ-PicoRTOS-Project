@@ -20,7 +20,8 @@
 #define LINE_HEIGHT 10
 #define MAX_LINES 6
 
-// Add here necessary states
+
+// States to be used.
 enum state
 {
     IDLE = 1,
@@ -30,6 +31,7 @@ enum state
 };
 enum state programState = IDLE;
 
+// Motion sensor data for acceleration and gyroscope.
 struct imu_data
 {
     float ax;
@@ -43,41 +45,46 @@ struct imu_data
 
 struct imu_data imu_data;
 
-static void write_wrapped(const char *text)
+static void write_message(const char *message)
 {
-    char line[CHARS_PER_LINE + 1];
-    int len = strlen(text);
-    int i = 0;
-    int row = 0;
+    char line[CHARS_PER_LINE + 1]; // buffer for the current line being written
+    int len = strlen(message); // length of the whole message
+    int index = 0; // which character is being handled
+    int line_index = 0; // how many characters in line buffer
+    int row = 0; // which row is being written
 
-    while (i < len && row < MAX_LINES)
+    // Go through the message and for every space check how much room remains in the current line.
+    // If there is no more space for a whole character, write the current line and move on to the
+    // next line.
+    while (index < len && row < MAX_LINES)
     {
-        int n = CHARS_PER_LINE;
-
-        if (len - i > CHARS_PER_LINE)
+        if (message[index] == ' ' && line_index > (CHARS_PER_LINE - 5))
         {
-            int b = CHARS_PER_LINE;
-            while (b > 0 && text[i + b] != ' ')
-            {
-                b--;
-            }
-            if (b > 0)
-            {
-                n = b;
-            }
+            line[line_index] = '\0';
+            write_text_xy(2, 2 + row * LINE_HEIGHT, line);
+            row++;
+            line_index = 0;
+
         }
 
-        strncpy(line, text + i, n);
-        line[n] = '\0';
-        write_text_xy(2, 2 + row * LINE_HEIGHT, line);
-
-        i += n;
-        while (text[i] == ' ')
+        // Do not include space on the next line.
+        else if (!(message[index] == ' ' && line_index == 0) && line_index < CHARS_PER_LINE)
         {
-            i++;
+            line[line_index] = message[index];
+            line_index++;
         }
-        row++;
+
+        index++;
+
     }
+
+    // Write all remaining characters
+    if (line_index > 0 && row < MAX_LINES)
+    {
+        line[line_index] = '\0';
+        write_text_xy(2, 2 + row * LINE_HEIGHT, line);
+    }
+
 }
 
 static void sensor_task(void *arg)
@@ -93,7 +100,7 @@ static void sensor_task(void *arg)
         if (programState == IDLE)
         {
             ICM42670_read_sensor_data(
-                &imu_data.ax, // imu_data.ax
+                &imu_data.ax,
                 &imu_data.ay,
                 &imu_data.az,
                 &imu_data.gx,
@@ -102,41 +109,45 @@ static void sensor_task(void *arg)
                 &imu_data.t);
         }
 
-        // tight_loop_contents(); // Modify with application code here.
+        // tight_loop_contents();
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
-uint8_t morse_buf[BUFFER_SIZE];
+char serial_buffer[BUFFER_SIZE];
+uint8_t morse_buffer[BUFFER_SIZE];
+
 char character;
 uint8_t morse_index = 0;
 uint8_t space_counter = 0;
 uint8_t button;
-char serial_buffer[BUFFER_SIZE];
 
 static void write_task(void *arg)
 {
-
     (void)arg;
 
     for(;;)
     {
+        // Send messages to serial client.
         if (programState == DATA_READY){
 
             clear_display();
 
             if (button == BUTTON1)
             {
-                // piste vai viiva
+                // Show dot on screen.
                 if (imu_data.az > 0.9){
-                    character = '.';
+                    buzzer_play_tone(1000, 100);
                     write_text(".");
+                    character = '.';
                 }
 
+                // Show dash on screen.
                 if (imu_data.ay < -0.9)
                 {
-                    character = '-';
+                    buzzer_play_tone(1000, 300);
                     write_text("-");
+                    character = '-';
                 }
 
                 space_counter = 0;
@@ -144,37 +155,49 @@ static void write_task(void *arg)
 
             if (button == BUTTON2)
             {
-                // välilyönti
-                character = ' ';
-                write_text(" ");
+                // Show space on screen (empty).
                 space_counter++;
 
+                if ((space_counter == 1) || (space_counter == 2))
+                {
+                    buzzer_play_tone(200, 150);
+                }
+                
+                character = ' ';
+                write_text(" ");
 
+                // Print morse buffer when there are three spaces in a row.
                 if (space_counter > 2)
                 {
-                    printf("sent: %s\n",morse_buf);
+                    buzzer_play_tone(2000, 100);
+                    buzzer_play_tone(4000, 100);
+                    buzzer_play_tone(8000, 100);
+                    printf("sent: %s\n",morse_buffer);
                     space_counter = 0;
                     morse_index = 0;
+                    character = 0;
                     for (int i = 0; i < BUFFER_SIZE; i++)
                     {
-                        morse_buf[i] = 0;
+                        morse_buffer[i] = 0;
                     }
                 }
             }
 
-            if (morse_index < BUFFER_SIZE - 1)
-            {                                       // tarkistetaan ettei buffer ylity
-                morse_buf[morse_index] = character; // lisätään merkki indeksiin n
+            // Add character to morse buffer. 
+            // Make sure the buffer does not overflow.
+            if (character != 0 && morse_index < BUFFER_SIZE - 1)
+            {
+                morse_buffer[morse_index] = character;
                 morse_index++;
             }
             programState = IDLE;
         }
 
+        // Receive messages from serial client.
         if (programState == SERIAL){
             clear_display();
-            write_wrapped(serial_buffer);
+            write_message(serial_buffer);
             programState = IDLE;
-
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -182,6 +205,8 @@ static void write_task(void *arg)
 }
 
 static void serial_task(void *arg)
+// Add characters to serial buffer and change state to SERIAL when
+// the message is ready to be sent.
 {
     (void)arg;
 
@@ -196,14 +221,15 @@ static void serial_task(void *arg)
 
         if (ch >= 0)
         {
+            // Send message.
             if (ch == '\n')
             {
                 serial_buffer[index] = '\0';
-
                 programState = SERIAL;
-
                 index = 0;
             }
+
+            // Collect characters to serial buffer
             else if (index < BUFFER_SIZE - 1)
             {
                 serial_buffer[index++] = (char)ch;
@@ -218,22 +244,11 @@ static void serial_task(void *arg)
 
 static void button_interrupt(uint gpio, uint32_t eventMask)
 {
-    /*
-    static TickType_t lastPressTime = 0;
-    TickType_t currentTime = xTaskGetTickCountFromISR();
-
-    if (lastPressTime != 0 && (currentTime - lastPressTime) < pdMS_TO_TICKS(100))
-    {
-        return;
-    }
-
-    lastPressTime = currentTime;
-*/
+    // Change state to DATA_READY when button is pressed.
     if (programState == IDLE){
         button = gpio;
         programState = DATA_READY;
     }
-    
 }
 
 int main()
@@ -258,6 +273,8 @@ int main()
     sleep_ms(300); // Wait some time so initialization of USB and hat is done.
 
     init_display();
+
+    init_buzzer();
 
     TaskHandle_t hSensorTask, hWriteTask, hSerialTask;
 
