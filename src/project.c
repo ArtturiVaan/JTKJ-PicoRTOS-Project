@@ -24,70 +24,103 @@
 // States to be used.
 enum state
 {
-    IDLE = 1,
-    DATA_READY,
-    DISPLAY,
-    SERIAL
+    IDLE = 1,   // Reading data from motion sensor.
+    PROCESS,    // Motion data is processed when button is pressed.
+    SERIAL      // Send messages from serial monitor to device.
 };
 enum state programState = IDLE;
 
 // Motion sensor data for acceleration and gyroscope.
 struct imu_data
 {
-    float ax;
-    float ay;
-    float az;
-    float gx;
-    float gy;
-    float gz;
-    float t;
+    float ax;   // Acceleration x-axis.
+    float ay;   // Acceleration y-axis.
+    float az;   // Acceleration z-axis.
+    float gx;   // Gyroscope x-axis.
+    float gy;   // Gyroscope y-axis.
+    float gz;   // Gyroscope z-axis.
+    float t;    // Temperature.
 };
 
 struct imu_data imu_data;
 
-static void write_message(const char *message)
-{
-    char line[CHARS_PER_LINE + 1]; // buffer for the current line being written
-    int len = strlen(message); // length of the whole message
-    int index = 0; // which character is being handled
-    int line_index = 0; // how many characters in line buffer
-    int row = 0; // which row is being written
+char serial_buffer[BUFFER_SIZE];    // For receiving messages from serial client.
 
+uint8_t device_buffer[BUFFER_SIZE]; // For sending messages to serial client from device.
+uint8_t device_index = 0;           // Device buffer index.
+uint8_t space_counter = 0;
+char device_character;
+uint8_t button;                     // Which button has been pressed.
+
+static void write_to_device(const char *message)
+{
+    char line[CHARS_PER_LINE + 1];  // Buffer for the current line being written plus null.
+    int len = strlen(message);      // Length of the whole message.
+    int message_index = 0;          // Which character is being handled.
+    int line_index = 0;             // How many characters in line buffer.
+    int line_number = 0;            // Which line is being written.
+
+    while (message_index < len && line_number < MAX_LINES)
     // Go through the message and for every space check how much room remains in the current line.
     // If there is no more space for a whole character, write the current line and move on to the
     // next line.
-    while (index < len && row < MAX_LINES)
     {
-        if (message[index] == ' ' && line_index > (CHARS_PER_LINE - 5))
+        if ((message[message_index] == ' ') && (line_index > (CHARS_PER_LINE - 5)))
+        // Check if there is enough space for more characters. If not, print the current line on the display.
+        // Make sure the line breaks only between letters.
         {
             line[line_index] = '\0';
-            write_text_xy(2, 2 + row * LINE_HEIGHT, line);
-            row++;
+            write_text_xy(2, 2 + line_number * LINE_HEIGHT, line);
+            line_number++;
             line_index = 0;
-
         }
 
-        // Do not include space on the next line.
-        else if (!(message[index] == ' ' && line_index == 0) && line_index < CHARS_PER_LINE)
+        else if (!(message[message_index] == ' ' && line_index == 0) && line_index < CHARS_PER_LINE)
+        // Copy characters in message to line buffer, except if the first character on the line is a space.
+        // Make sure the length of the line does not go over the set limit.
         {
-            line[line_index] = message[index];
+            line[line_index] = message[message_index];
             line_index++;
         }
 
-        index++;
-
+        message_index++;
     }
 
-    // Write all remaining characters
-    if (line_index > 0 && row < MAX_LINES)
+    if (line_index > 0 && line_number < MAX_LINES)
+    // Write all remaining characters on the last line.
     {
         line[line_index] = '\0';
-        write_text_xy(2, 2 + row * LINE_HEIGHT, line);
+        write_text_xy(2, 2 + line_number * LINE_HEIGHT, line);
     }
 
 }
 
+static void message_buzzer(const char *message)
+    // Play sound through device buzzer when message is received from client.
+{
+    int len = strlen(message);  // Length of the whole message.
+    uint16_t i;
+
+    for (i = 0; i < len; i++) {
+        if (message[i] == '-') {
+            buzzer_play_tone(1000, 300);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        if (message[i] == '.') {
+            buzzer_play_tone(1000, 100);
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
+
+        if (message[i] == ' ') {
+            vTaskDelay(pdMS_TO_TICKS(300));
+
+        }
+    }
+}
+
 static void sensor_task(void *arg)
+    // Read data from IMU in IDLE state.
 {
     (void)arg;
 
@@ -106,48 +139,47 @@ static void sensor_task(void *arg)
                 &imu_data.gx,
                 &imu_data.gy,
                 &imu_data.gz,
-                &imu_data.t);
+                &imu_data.t
+            );
         }
 
-        // tight_loop_contents();
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }
 
-char serial_buffer[BUFFER_SIZE];
-uint8_t morse_buffer[BUFFER_SIZE];
-
-char character;
-uint8_t morse_index = 0;
-uint8_t space_counter = 0;
-uint8_t button;
-
 static void write_task(void *arg)
+    // When the device is in PROCESS state, write messages to the device buffer in morse when buttons are pressed.
+    // Send buffer to serial client.
+
+    // When the device is in SERIAL state, receive message from serial client.
 {
     (void)arg;
 
     for(;;)
     {
-        // Send messages to serial client.
-        if (programState == DATA_READY){
+        // Save character to device buffer depending on device orientation and the button pressed.
+        // Show character on screen and play buzzer.
+        // When the device is stationary and vertical, IMU data for y-axis is 1 (treshold = 0.9), character is dash.
+        // When the device is stationary and horizontal, IMU data for z-axis is 1 (treshold = 0.9), character is dot.
+        if (programState == PROCESS){
 
             clear_display();
 
             if (button == BUTTON1)
             {
-                // Show dot on screen.
+                // Saves character as dot. Give feedback to user.
                 if (imu_data.az > 0.9){
                     buzzer_play_tone(1000, 100);
                     write_text(".");
-                    character = '.';
+                    device_character = '.';
                 }
 
-                // Show dash on screen.
+                // Saves character as dash. Give feedback to user.
                 if (imu_data.ay < -0.9)
                 {
                     buzzer_play_tone(1000, 300);
                     write_text("-");
-                    character = '-';
+                    device_character = '-';
                 }
 
                 space_counter = 0;
@@ -155,7 +187,9 @@ static void write_task(void *arg)
 
             if (button == BUTTON2)
             {
-                // Show space on screen (empty).
+                // Saves character as space. Give feedback to user.
+                // Counts the number of spaces pressed in a row.
+                // If the space is pressed thrice, sends the device buffer to serial client.
                 space_counter++;
 
                 if ((space_counter == 1) || (space_counter == 2))
@@ -163,40 +197,42 @@ static void write_task(void *arg)
                     buzzer_play_tone(200, 150);
                 }
                 
-                character = ' ';
+                device_character = ' ';
                 write_text(" ");
 
-                // Print morse buffer when there are three spaces in a row.
                 if (space_counter > 2)
                 {
                     buzzer_play_tone(2000, 100);
                     buzzer_play_tone(4000, 100);
                     buzzer_play_tone(8000, 100);
-                    printf("sent: %s\n",morse_buffer);
+                    printf("%s\n",device_buffer);
+
+                    // Reset buffer for the next message.
                     space_counter = 0;
-                    morse_index = 0;
-                    character = 0;
+                    device_index = 0;
+                    device_character = 0;
                     for (int i = 0; i < BUFFER_SIZE; i++)
                     {
-                        morse_buffer[i] = 0;
+                        device_buffer[i] = 0;
                     }
                 }
             }
 
-            // Add character to morse buffer. 
-            // Make sure the buffer does not overflow.
-            if (character != 0 && morse_index < BUFFER_SIZE - 1)
+            if (device_character != 0 && device_index < BUFFER_SIZE - 1)
+                // Copy character to device buffer. 
+                // Make sure the buffer does not overflow.
             {
-                morse_buffer[morse_index] = character;
-                morse_index++;
+                device_buffer[device_index] = device_character;
+                device_index++;
             }
             programState = IDLE;
         }
 
-        // Receive messages from serial client.
-        if (programState == SERIAL){
+        if (programState == SERIAL) {
+            // Receive messages from serial client.
             clear_display();
-            write_message(serial_buffer);
+            write_to_device(serial_buffer);
+            message_buzzer(serial_buffer);
             programState = IDLE;
         }
 
@@ -204,35 +240,36 @@ static void write_task(void *arg)
     }
 }
 
-static void serial_task(void *arg)
-// Add characters to serial buffer and change state to SERIAL when
-// the message is ready to be sent.
+static void read_serial_task(void *arg)
 {
+    // Read message from serial client when in IDLE state.
+    // Change state to SERIAL.
+
     (void)arg;
 
-    int index = 0;
+    int serial_index = 0;
 
     for(;;)
     {
         if (programState == IDLE)
         {
 
-            int ch = getchar_timeout_us(0);
+            int serial_character = getchar_timeout_us(0);
 
-        if (ch >= 0)
+        if (serial_character >= 0)
         {
             // Send message.
-            if (ch == '\n')
+            if (serial_character == '\n')
             {
-                serial_buffer[index] = '\0';
+                serial_buffer[serial_index] = '\0';
                 programState = SERIAL;
-                index = 0;
+                serial_index = 0;
             }
 
             // Collect characters to serial buffer
-            else if (index < BUFFER_SIZE - 1)
+            else if (serial_index < BUFFER_SIZE - 1)
             {
-                serial_buffer[index++] = (char)ch;
+                serial_buffer[serial_index++] = (char)serial_character;
             }
         }
         }
@@ -241,13 +278,12 @@ static void serial_task(void *arg)
     }
 }
 
-
 static void button_interrupt(uint gpio, uint32_t eventMask)
 {
-    // Change state to DATA_READY when button is pressed.
+    // Change state to PROCESS when button is pressed.
     if (programState == IDLE){
         button = gpio;
-        programState = DATA_READY;
+        programState = PROCESS;
     }
 }
 
@@ -276,7 +312,7 @@ int main()
 
     init_buzzer();
 
-    TaskHandle_t hSensorTask, hWriteTask, hSerialTask;
+    TaskHandle_t hSensorTask, hWriteTask, hReadSerialTask;
 
     // Create the tasks with xTaskCreate
     BaseType_t result = xTaskCreate(sensor_task,        // (en) Task function
@@ -307,12 +343,12 @@ int main()
     }
 
         // Create the tasks with xTaskCreate
-    BaseType_t result2 = xTaskCreate(serial_task,        // (en) Task function
-                                    "serial",           // (en) Name of the task
+    BaseType_t result2 = xTaskCreate(read_serial_task,        // (en) Task function
+                                    "read_serial",           // (en) Name of the task
                                     DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
                                     NULL,               // (en) Arguments of the task
                                     2,                  // (en) Priority of this task
-                                    &hSerialTask);      // (en) A handle to control the execution of this task
+                                    &hReadSerialTask);      // (en) A handle to control the execution of this task
 
     if (result2 != pdPASS)
     {
