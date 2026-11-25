@@ -28,6 +28,7 @@ enum state
     PROCESS,    // Motion data is processed when button is pressed.
     SERIAL      // Send messages from serial monitor to device.
 };
+
 enum state programState = IDLE;
 
 // Motion sensor data for acceleration and gyroscope.
@@ -46,7 +47,7 @@ struct imu_data imu_data;
 
 char serial_buffer[BUFFER_SIZE];    // For receiving messages from serial client.
 
-uint8_t device_buffer[BUFFER_SIZE]; // For sending messages to serial client from device.
+char device_buffer[BUFFER_SIZE]; // For sending messages to serial client from device.
 uint8_t device_index = 0;           // Device buffer index.
 uint8_t space_counter = 0;
 char device_character;
@@ -124,9 +125,6 @@ static void sensor_task(void *arg)
 {
     (void)arg;
 
-    init_ICM42670();
-    ICM42670_start_with_default_values();
-
     for (;;)
     {
 
@@ -172,58 +170,61 @@ static void write_task(void *arg)
                     buzzer_play_tone(1000, 100);
                     write_text(".");
                     device_character = '.';
+                    space_counter = 0;
                 }
 
                 // Saves character as dash. Give feedback to user.
-                if (imu_data.ay < -0.9)
+                else if (imu_data.ay < -0.9)
                 {
                     buzzer_play_tone(1000, 300);
                     write_text("-");
                     device_character = '-';
+                    space_counter = 0;
                 }
-
-                space_counter = 0;
             }
 
             if (button == BUTTON2)
             {
-                // Saves character as space. Give feedback to user.
+                // Saves character as space on first and second press. Give feedback to user.
                 // Counts the number of spaces pressed in a row.
                 // If the space is pressed thrice, sends the device buffer to serial client.
                 space_counter++;
 
-                if ((space_counter == 1) || (space_counter == 2))
-                {
+                if (space_counter < 3) {
                     buzzer_play_tone(200, 150);
+                    device_character = ' ';
+                    write_text(" ");
                 }
-                
-                device_character = ' ';
-                write_text(" ");
 
-                if (space_counter > 2)
-                {
+                else {
                     buzzer_play_tone(2000, 100);
                     buzzer_play_tone(4000, 100);
                     buzzer_play_tone(8000, 100);
+
+                    // Make sure the message ends with null character.
+                    device_buffer[device_index] = '\0';
+
+                    // Print message saved in device buffer.
                     printf("%s\n",device_buffer);
 
                     // Reset buffer for the next message.
                     space_counter = 0;
                     device_index = 0;
                     device_character = 0;
-                    for (int i = 0; i < BUFFER_SIZE; i++)
-                    {
+                    for (int i = 0; i < BUFFER_SIZE; i++) {
                         device_buffer[i] = 0;
                     }
                 }
             }
 
-            if (device_character != 0 && device_index < BUFFER_SIZE - 1)
+            if (device_character != 0 && device_index < BUFFER_SIZE - 1) {
                 // Copy character to device buffer. 
                 // Make sure the buffer does not overflow.
-            {
                 device_buffer[device_index] = device_character;
                 device_index++;
+
+                // Make sure the last character in the buffer is null.
+                device_buffer[device_index] = '\0';
             }
             programState = IDLE;
         }
@@ -253,25 +254,22 @@ static void read_serial_task(void *arg)
     {
         if (programState == IDLE)
         {
-
             int serial_character = getchar_timeout_us(0);
 
-        if (serial_character >= 0)
-        {
-            // Send message.
-            if (serial_character == '\n')
+            if (serial_character >= 0)
             {
-                serial_buffer[serial_index] = '\0';
-                programState = SERIAL;
-                serial_index = 0;
-            }
+                if (serial_character == '\n') {
+                    // Change state to SERIAL and send message with newline.
+                    serial_buffer[serial_index] = '\0';
+                    programState = SERIAL;
+                    serial_index = 0;
+                }
 
-            // Collect characters to serial buffer
-            else if (serial_index < BUFFER_SIZE - 1)
-            {
-                serial_buffer[serial_index++] = (char)serial_character;
+                else if (serial_index < BUFFER_SIZE - 1) {
+                    // Collect characters to serial buffer
+                    serial_buffer[serial_index++] = (char)serial_character;
+                }
             }
-        }
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -289,6 +287,7 @@ static void button_interrupt(uint gpio, uint32_t eventMask)
 
 int main()
 {
+    // Initialize GPIO, SDK, display and buzzer.
     stdio_init_all();
 
     gpio_init(BUTTON1);
@@ -300,7 +299,7 @@ int main()
     gpio_set_irq_enabled_with_callback(BUTTON1, GPIO_IRQ_EDGE_FALL, true, button_interrupt);
     gpio_set_irq_enabled(BUTTON2, GPIO_IRQ_EDGE_FALL, true);
 
-    // Uncomment this lines if you want to wait till the serial monitor is connected
+    // Wait until the serial monitor is connected.
     while (!stdio_usb_connected())
     {
         sleep_ms(10);
@@ -309,18 +308,20 @@ int main()
     sleep_ms(300); // Wait some time so initialization of USB and hat is done.
 
     init_display();
-
     init_buzzer();
+
+    init_ICM42670();
+    ICM42670_start_with_default_values();
 
     TaskHandle_t hSensorTask, hWriteTask, hReadSerialTask;
 
     // Create the tasks with xTaskCreate
-    BaseType_t result = xTaskCreate(sensor_task,        // (en) Task function
-                                    "sensor",           // (en) Name of the task
-                                    DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                                    NULL,               // (en) Arguments of the task
-                                    2,                  // (en) Priority of this task
-                                    &hSensorTask);      // (en) A handle to control the execution of this task
+    BaseType_t result = xTaskCreate(sensor_task,        // Task function
+                                    "sensor",           // Name of the task
+                                    DEFAULT_STACK_SIZE, // Size of the stack for this task (in words). Generally 1024 or 2048
+                                    NULL,               // Arguments of the task
+                                    2,                  // Priority of this task
+                                    &hSensorTask);      // A handle to control the execution of this task
 
     if (result != pdPASS)
     {
@@ -328,13 +329,12 @@ int main()
         return 0;
     }
 
-    // Create the tasks with xTaskCreate
-    BaseType_t result1 = xTaskCreate(write_task,         // (en) Task function
-                                     "write",            // (en) Name of the task
-                                     DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                                     NULL,               // (en) Arguments of the task
-                                     2,                  // (en) Priority of this task
-                                     &hWriteTask);       // (en) A handle to control the execution of this task
+    BaseType_t result1 = xTaskCreate(write_task,         // Task function
+                                     "write",            // Name of the task
+                                     DEFAULT_STACK_SIZE, // Size of the stack for this task (in words). Generally 1024 or 2048
+                                     NULL,               // Arguments of the task
+                                     2,                  // Priority of this task
+                                     &hWriteTask);       // A handle to control the execution of this task
 
     if (result1 != pdPASS)
     {
@@ -342,13 +342,12 @@ int main()
         return 0;
     }
 
-        // Create the tasks with xTaskCreate
-    BaseType_t result2 = xTaskCreate(read_serial_task,        // (en) Task function
-                                    "read_serial",           // (en) Name of the task
-                                    DEFAULT_STACK_SIZE, // (en) Size of the stack for this task (in words). Generally 1024 or 2048
-                                    NULL,               // (en) Arguments of the task
-                                    2,                  // (en) Priority of this task
-                                    &hReadSerialTask);      // (en) A handle to control the execution of this task
+    BaseType_t result2 = xTaskCreate(read_serial_task,   // Task function
+                                    "read_serial",       // Name of the task
+                                    DEFAULT_STACK_SIZE,  // Size of the stack for this task (in words). Generally 1024 or 2048
+                                    NULL,                // Arguments of the task
+                                    2,                   // Priority of this task
+                                    &hReadSerialTask);   // A handle to control the execution of this task
 
     if (result2 != pdPASS)
     {
