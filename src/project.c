@@ -20,16 +20,40 @@
 #define LINE_HEIGHT 10
 #define MAX_LINES 6
 
+// Frequenzies (Hz) for morse buzzer.
+#define DOT   700
+#define DASH  700
+#define SPACE 200
+
+// Note frequencies (Hz) for startup song. S = sharp (e.g. CS5 = C#5).
+#define DS4   311
+#define E4    330
+#define FS4   370
+#define GS4   415
+#define A4    440
+#define B4    494
+#define CS5   554
+#define D5    587
+
+// Tempo for startup song: quarter note = 200 BPM = 300 ms.
+#define GAP      25
+#define EIGHTH   (150 - GAP)
+#define QUARTER  (300 - GAP)
+#define DQUARTER (450 - GAP)
+#define HALF     (600 - GAP)
+#define DHALF    (900 - GAP)
+
 
 // States to be used.
 enum state
 {
-    IDLE = 1,   // Reading data from motion sensor.
-    PROCESS,    // Motion data is processed when button is pressed.
-    SERIAL      // Send messages from serial monitor to device.
+    STARTUP = 0, // Startup melody is playing.
+    IDLE = 1,    // Reading data from motion sensor.
+    PROCESS,     // Motion data is processed when button is pressed.
+    SERIAL       // Send messages from serial monitor to device.
 };
 
-enum state programState = IDLE;
+enum state programState = STARTUP;
 
 // Motion sensor data for acceleration and gyroscope.
 struct imu_data
@@ -104,12 +128,12 @@ static void message_buzzer(const char *message)
 
     for (i = 0; i < len; i++) {
         if (message[i] == '-') {
-            buzzer_play_tone(1000, 300);
+            buzzer_play_tone(DASH, 300);
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
         if (message[i] == '.') {
-            buzzer_play_tone(1000, 100);
+            buzzer_play_tone(DOT, 100);
             vTaskDelay(pdMS_TO_TICKS(100));
         }
 
@@ -167,7 +191,7 @@ static void write_task(void *arg)
             {
                 // Saves character as dot. Give feedback to user.
                 if (imu_data.az > 0.9){
-                    buzzer_play_tone(1000, 100);
+                    buzzer_play_tone(DOT, 100);
                     write_text(".");
                     device_character = '.';
                     space_counter = 0;
@@ -176,7 +200,7 @@ static void write_task(void *arg)
                 // Saves character as dash. Give feedback to user.
                 else if (imu_data.ay < -0.9)
                 {
-                    buzzer_play_tone(1000, 300);
+                    buzzer_play_tone(DASH, 300);
                     write_text("-");
                     device_character = '-';
                     space_counter = 0;
@@ -191,7 +215,7 @@ static void write_task(void *arg)
                 space_counter++;
 
                 if (space_counter < 3) {
-                    buzzer_play_tone(200, 150);
+                    buzzer_play_tone(SPACE, 150);
                     device_character = ' ';
                     write_text(" ");
                 }
@@ -276,6 +300,65 @@ static void read_serial_task(void *arg)
     }
 }
 
+static void startup_task(void *arg)
+{
+    // Play the startup song once, then let other tasks start working.
+    
+    (void)arg;
+
+    // Pickup
+    buzzer_play_tone(E4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 1
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(CS5, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(CS5, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 2
+    buzzer_play_tone(A4, HALF);      vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(E4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(E4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 3
+    buzzer_play_tone(E4, DQUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(E4, EIGHTH);    vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(B4, EIGHTH);    vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(A4, EIGHTH);    vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(GS4, EIGHTH);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(FS4, EIGHTH);   vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 4
+    buzzer_play_tone(E4, DHALF);     vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(E4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+
+
+    // Bar 5
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(CS5, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(CS5, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 6
+    buzzer_play_tone(A4, HALF);      vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(E4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 7
+    buzzer_play_tone(GS4, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(FS4, EIGHTH);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(GS4, EIGHTH);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(A4, QUARTER);   vTaskDelay(pdMS_TO_TICKS(GAP));
+    buzzer_play_tone(DS4, QUARTER);  vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    // Bar 8
+    buzzer_play_tone(E4, DHALF);     vTaskDelay(pdMS_TO_TICKS(GAP));
+
+    printf("Device ready\n");
+    programState = IDLE;    // Device is ready to be used.
+    vTaskDelete(NULL);      // This task is not needed anymore.
+}
+
 static void button_interrupt(uint gpio, uint32_t eventMask)
 {
     // Change state to PROCESS when button is pressed.
@@ -313,7 +396,7 @@ int main()
     init_ICM42670();
     ICM42670_start_with_default_values();
 
-    TaskHandle_t hSensorTask, hWriteTask, hReadSerialTask;
+    TaskHandle_t hSensorTask, hWriteTask, hReadSerialTask, hStartUpTask;
 
     // Create the tasks with xTaskCreate
     BaseType_t result = xTaskCreate(sensor_task,        // Task function
@@ -350,6 +433,19 @@ int main()
                                     &hReadSerialTask);   // A handle to control the execution of this task
 
     if (result2 != pdPASS)
+    {
+        printf("Example Task creation failed\n");
+        return 0;
+    }
+
+        BaseType_t result3 = xTaskCreate(startup_task,   // Task function
+                                    "startup",       // Name of the task
+                                    DEFAULT_STACK_SIZE,  // Size of the stack for this task (in words). Generally 1024 or 2048
+                                    NULL,                // Arguments of the task
+                                    2,                   // Priority of this task
+                                    &hStartUpTask);   // A handle to control the execution of this task
+
+    if (result3 != pdPASS)
     {
         printf("Example Task creation failed\n");
         return 0;
